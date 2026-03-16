@@ -1,0 +1,1 @@
+{"_meta":{"vintage":"","generated":"","hpsa_counties_with_designation":0,"mua_counties_with_designation":0,"source_hpsa":"https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_DL.xlsx","source_mua":"https://data.hrsa.gov/DataDownload/DD_Files/MUA_DET.xlsx","note":"Run 'npm run data:hrsa' to populate with current HRSA shortage area data"}}

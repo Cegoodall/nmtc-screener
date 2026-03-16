@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "data:cdfi": "node scripts/process-cdfi-data.mjs",
     "data:oz": "node scripts/process-oz-data.mjs",
-    "data:all": "npm run data:cdfi && npm run data:oz"
+    "data:hrsa": "node scripts/process-hrsa-data.mjs",
+    "data:all": "npm run data:cdfi && npm run data:oz && npm run data:hrsa"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.1",

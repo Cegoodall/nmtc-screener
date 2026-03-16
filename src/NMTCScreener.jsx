@@ -3,6 +3,13 @@ import { Link } from "react-router-dom";
 import { geocodeAddress } from "./api/geocoder";
 import { lookupTract, preloadTractData } from "./data/tractLookup";
 import { isOpportunityZone, preloadOZData } from "./data/ozLookup";
+import {
+  lookupHrsaByCounty,
+  lookupHrsaByFips5,
+  isHrsaDataPopulated,
+  getHrsaVintage,
+  preloadHrsaData,
+} from "./data/hrsaLookup";
 import { checkHubZone } from "./api/hubzone";
 import { logSearch } from "./data/searchHistory";
 
@@ -157,6 +164,136 @@ function DeepDistressBanner({ basis, highMigration }) {
   );
 }
 
+// ─── HRSA shortage area panel ─────────────────────────────────────────────────
+
+function HrsaDesignationBadge({ label, data, scoreLabel }) {
+  const designated = !!data;
+  const color = designated ? "#0d9488" : null; // teal for positive designations
+  return (
+    <div style={{
+      background: designated ? "rgba(13,148,136,0.05)" : "#f8fafc",
+      border: `1px solid ${designated ? "rgba(13,148,136,0.3)" : "#e2e8f0"}`,
+      borderRadius: 8, padding: "12px 14px", position: "relative", overflow: "hidden",
+      flex: "1 1 0", minWidth: 0,
+    }}>
+      {designated && (
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: color }} />
+      )}
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.3, color: "#94a3b8", textTransform: "uppercase", marginBottom: 6 }}>
+        {label}
+      </div>
+      {designated ? (
+        <>
+          <div style={{ fontSize: 13, fontWeight: 800, color, marginBottom: 4 }}>Designated</div>
+          {data.score != null && (
+            <div style={{ fontSize: 11, color: "#475569", marginBottom: 2 }}>
+              {scoreLabel}: <strong style={{ fontFamily: "monospace" }}>{data.score}</strong>
+              <span style={{ color: "#94a3b8", marginLeft: 4 }}>(higher = greater need)</span>
+            </div>
+          )}
+          {data.imu_score != null && (
+            <div style={{ fontSize: 11, color: "#475569", marginBottom: 2 }}>
+              IMU score: <strong style={{ fontFamily: "monospace" }}>{data.imu_score.toFixed(1)}</strong>
+              <span style={{ color: "#94a3b8", marginLeft: 4 }}>({"<"}62 = underserved)</span>
+            </div>
+          )}
+          {data.name && (
+            <div style={{ fontSize: 10, color: "#64748b", marginTop: 3, fontStyle: "italic", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {data.name}
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8" }}>Not designated</div>
+      )}
+    </div>
+  );
+}
+
+function HrsaPanel({ hrsa, countyFips5, dataPopulated, vintage }) {
+  if (!dataPopulated) {
+    return (
+      <div style={{
+        background: "white", border: "1px solid #e2e8f0", borderRadius: 10,
+        padding: "16px 20px", marginBottom: 12,
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
+      }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: "#94a3b8", textTransform: "uppercase", marginBottom: 6 }}>
+            MUA / HPSA Designation
+          </div>
+          <div style={{ fontSize: 12, color: "#94a3b8" }}>
+            HRSA data not yet loaded. Run <code style={{ background: "#f1f5f9", padding: "1px 5px", borderRadius: 3, fontSize: 11 }}>npm run data:hrsa</code> to bundle shortage area data, then rebuild.
+          </div>
+        </div>
+        <a href="https://data.hrsa.gov/tools/shortage-area/by-address" target="_blank" rel="noopener noreferrer"
+          style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: "#2d7dd2", textDecoration: "none", whiteSpace: "nowrap" }}>
+          Verify at HRSA ↗
+        </a>
+      </div>
+    );
+  }
+
+  const anyDesignation = hrsa && (hrsa.pc || hrsa.dh || hrsa.mh || hrsa.mua || hrsa.mup);
+
+  return (
+    <div style={{
+      background: anyDesignation ? "rgba(13,148,136,0.03)" : "white",
+      border: `1px solid ${anyDesignation ? "rgba(13,148,136,0.25)" : "#e2e8f0"}`,
+      borderRadius: 10, padding: "16px 20px", marginBottom: 12, position: "relative", overflow: "hidden",
+    }}>
+      {anyDesignation && (
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#0d9488,#14b8a6)" }} />
+      )}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: "#94a3b8", textTransform: "uppercase" }}>
+          MUA / HPSA Designation
+        </div>
+        {countyFips5 && (
+          <div style={{ fontSize: 10, color: "#cbd5e1" }}>
+            County FIPS: <span style={{ fontFamily: "monospace" }}>{countyFips5}</span>
+          </div>
+        )}
+      </div>
+
+      {hrsa ? (
+        <>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <HrsaDesignationBadge label="Primary Care HPSA"  data={hrsa.pc}  scoreLabel="HPSA score" />
+            <HrsaDesignationBadge label="Dental Health HPSA" data={hrsa.dh}  scoreLabel="HPSA score" />
+            <HrsaDesignationBadge label="Mental Health HPSA" data={hrsa.mh}  scoreLabel="HPSA score" />
+            <HrsaDesignationBadge label="Medically Underserved Area" data={hrsa.mua} />
+            {hrsa.mup && <HrsaDesignationBadge label="Medically Underserved Pop." data={hrsa.mup} />}
+          </div>
+          {!anyDesignation && (
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
+              No active HPSA or MUA/P designation found for this county.
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{ fontSize: 12, color: "#64748b" }}>
+          County FIPS not resolved — HRSA lookup unavailable for this entry.
+        </div>
+      )}
+
+      <div style={{ marginTop: 10, fontSize: 10, color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 4 }}>
+        <span>
+          Source: HRSA Bureau of Health Workforce
+          {vintage ? ` · ${vintage}` : ""}
+          {" · "}
+          <em>Designations update periodically — verify current status at{" "}
+            <a href="https://data.hrsa.gov/tools/shortage-area/by-address" target="_blank" rel="noopener noreferrer"
+              style={{ color: "#94a3b8" }}>
+              data.hrsa.gov
+            </a>
+          </em>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function NMTCScreener() {
@@ -175,6 +312,7 @@ export default function NMTCScreener() {
     // Preload static data files in background
     preloadTractData().catch(() => {});
     preloadOZData().catch(() => {});
+    preloadHrsaData().catch(() => {});
   }, []);
 
   const runDemo = () => { setResults(DEMO_RESULT); setError(null); };
@@ -192,6 +330,7 @@ export default function NMTCScreener() {
       setLoadStep("Looking up tract in CDFI Fund eligibility data...");
       await preloadTractData();
       await preloadOZData();
+      await preloadHrsaData();
       const tract = lookupTract(geo.geoid);
       if (!tract) throw new Error(`Tract GEOID ${geo.geoid} not found in CDFI Fund dataset. The bundled data file may be empty — run 'node scripts/process-cdfi-data.mjs' to populate it.`);
 
@@ -208,7 +347,13 @@ export default function NMTCScreener() {
         hubZone = { designated: false, checked: false, error: true };
       }
 
-      // Step 5 — Assemble — all flags come directly from CDFI Fund data
+      // Step 5a — HRSA shortage area lookup (county-level, from bundled data)
+      const countyFips5 = geo.stateCode && geo.countyCode
+        ? `${geo.stateCode}${geo.countyCode}`.padStart(5, "0").slice(0, 5)
+        : null;
+      const hrsa = countyFips5 ? lookupHrsaByCounty(geo.stateCode, geo.countyCode) : null;
+
+      // Step 6 — Assemble — all flags come directly from CDFI Fund data
       const povertyRate      = parseFloat(tract.poverty_rate ?? 0);
       const mfiRatio         = parseFloat(tract.mfi_ratio ?? 0);
       const unemploymentRate = parseFloat(tract.unemployment_rate ?? 0);
@@ -242,6 +387,8 @@ export default function NMTCScreener() {
         highMigration: !!tract.high_migration,
         isOpportunityZone: oz,
         hubZone,
+        hrsa,
+        countyFips5,
         isDemo: false,
       };
       setResults(resultData);
@@ -270,6 +417,7 @@ export default function NMTCScreener() {
       setLoadStep("Loading CDFI Fund tract data...");
       await preloadTractData();
       await preloadOZData();
+      await preloadHrsaData();
       const tract = lookupTract(geoid);
       if (!tract) throw new Error(`GEOID ${geoid} not found in CDFI Fund dataset.`);
       const povertyRate      = parseFloat(tract.poverty_rate ?? 0);
@@ -286,6 +434,9 @@ export default function NMTCScreener() {
       if (unemploymentRate >= 9.25) deepBasis.push("unemployment_2_5x");
       const deepDistress = !!tract.deep_distress || deepBasis.length > 0;
       const oz = isOpportunityZone(geoid);
+      // Derive county FIPS from GEOID (first 5 digits = state + county)
+      const countyFips5 = geoid.slice(0, 5);
+      const hrsa = lookupHrsaByFips5(countyFips5);
       setResults({
         matchedAddress: `Manual GEOID entry: ${geoid}`,
         geoid,
@@ -298,6 +449,8 @@ export default function NMTCScreener() {
         highMigration: !!tract.high_migration,
         isOpportunityZone: oz,
         hubZone: { designated: false, checked: false },
+        hrsa,
+        countyFips5,
         isManualGeoid: true,
         isDemo: false,
       });
@@ -612,17 +765,13 @@ export default function NMTCScreener() {
               />
             </div>
 
-            {/* MUA / HPSA manual link */}
-            <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 10, padding: "16px 20px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: "#94a3b8", textTransform: "uppercase", marginBottom: 6 }}>MUA / HPSA Designation</div>
-                <div style={{ fontSize: 13, color: "#64748b" }}>Medically Underserved Area and Health Professional Shortage Area status requires manual verification via HRSA — no programmatic API available.</div>
-              </div>
-              <a href="https://data.hrsa.gov/tools/shortage-area/by-address" target="_blank" rel="noopener noreferrer"
-                style={{ flexShrink: 0, marginLeft: 20, fontSize: 12, fontWeight: 700, color: "#2d7dd2", textDecoration: "none", whiteSpace: "nowrap" }}>
-                Verify at HRSA ↗
-              </a>
-            </div>
+            {/* MUA / HPSA inline designation panel */}
+            <HrsaPanel
+              hrsa={r.hrsa}
+              countyFips5={r.countyFips5}
+              dataPopulated={isHrsaDataPopulated()}
+              vintage={getHrsaVintage()}
+            />
 
             {/* Dashboard link */}
             <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 20px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -634,7 +783,7 @@ export default function NMTCScreener() {
 
             {/* Methodology footnote */}
             <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.7, borderTop: "1px solid #e2e8f0", paddingTop: 16 }}>
-              <strong style={{ color: "#64748b" }}>Methodology:</strong> Eligibility data sourced directly from the CDFI Fund tract-level dataset (2016–2020 ACS 5-Year Estimates). Poverty rate, MFI ratio, and unemployment rate are published values from the CDFI Fund — not recalculated from raw Census variables. Deep Distress criteria reflect the 2025 CDFI Fund allocation application. Opportunity Zone data from Treasury/IRS published tract list. HUBZone status from SBA API. Geocoding accuracy is highest for standard urban addresses via the Census Bureau geocoder; rural and small-town addresses may fall back to OpenStreetMap (Nominatim) or the FCC block API and should be verified with a manual GEOID entry from CIMS. <strong>All determinations must be verified in CIMS v.4 prior to application to avoid recapture risk. NMTC Native areas, high-migration rural counties, and U.S. territories may qualify for Deep Distress under supplemental criteria — verify manually with CDFI Fund.</strong>
+              <strong style={{ color: "#64748b" }}>Methodology:</strong> Eligibility data sourced directly from the CDFI Fund tract-level dataset (2016–2020 ACS 5-Year Estimates). Poverty rate, MFI ratio, and unemployment rate are published values from the CDFI Fund — not recalculated from raw Census variables. Deep Distress criteria reflect the 2025 CDFI Fund allocation application. Opportunity Zone data from Treasury/IRS published tract list. HUBZone status from SBA API. HPSA and MUA/P designations sourced from HRSA Bureau of Health Workforce downloadable data files ({getHrsaVintage() || "run npm run data:hrsa to populate"}); designations are county-level and update periodically — current status should be confirmed at data.hrsa.gov before relying on these results for clinical or funding purposes. Geocoding accuracy is highest for standard urban addresses via the Census Bureau geocoder; rural and small-town addresses may fall back to OpenStreetMap (Nominatim) or the FCC block API and should be verified with a manual GEOID entry from CIMS. <strong>All NMTC eligibility determinations must be verified in CIMS v.4 prior to application to avoid recapture risk. NMTC Native areas, high-migration rural counties, and U.S. territories may qualify for Deep Distress under supplemental criteria — verify manually with CDFI Fund.</strong>
             </div>
           </div>
         )}
