@@ -345,7 +345,7 @@ export default function NMTCScreener() {
                 style={{ width: "100%", padding: "10px 13px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 14, fontFamily: "inherit", background: "#f8fafc" }}
                 value={street} onChange={e => setStreet(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && analyze()}
-                placeholder="1600 Toulouse Street"
+                placeholder="123 Main Street"
               />
             </div>
             <div>
@@ -354,7 +354,7 @@ export default function NMTCScreener() {
                 style={{ width: "100%", padding: "10px 13px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 14, fontFamily: "inherit", background: "#f8fafc" }}
                 value={city} onChange={e => setCity(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && analyze()}
-                placeholder="New Orleans"
+                placeholder="City"
               />
             </div>
             <div>
@@ -373,7 +373,7 @@ export default function NMTCScreener() {
                 style={{ width: "100%", padding: "10px 13px", border: "1.5px solid #e2e8f0", borderRadius: 7, fontSize: 14, fontFamily: "inherit", background: "#f8fafc" }}
                 value={zip} onChange={e => setZip(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && analyze()}
-                placeholder="70125"
+                placeholder="ZIP"
                 maxLength={10}
               />
             </div>
