@@ -72,6 +72,20 @@ async function downloadFile(urls, dest) {
   throw new Error(`All URLs failed for ${dest}`);
 }
 
+// ─── Date helper ─────────────────────────────────────────────────────────────
+
+// XLSX sometimes returns date cells as Excel serial numbers (days since 1899-12-30).
+// Convert to ISO date string if numeric; pass strings through unchanged.
+function normalizeDate(val) {
+  if (!val && val !== 0) return "";
+  const n = Number(val);
+  if (!isNaN(n) && n > 1000) {
+    // Excel epoch is Dec 30, 1899; Unix epoch is Jan 1, 1970 (25569 days later)
+    return new Date((n - 25569) * 86400 * 1000).toISOString().slice(0, 10);
+  }
+  return String(val).trim();
+}
+
 // ─── Column detection helper ──────────────────────────────────────────────────
 
 function findCol(headers, ...fragments) {
@@ -144,7 +158,7 @@ function processHpsaFile(XLSX, filePath, forcedType) {
 
     const score = colScore ? (parseInt(row[colScore], 10) || 0) : 0;
     const name  = colName  ? String(row[colName]  || "").trim() : "";
-    const upd   = colLastUpd ? String(row[colLastUpd] || "").trim() : "";
+    const upd   = colLastUpd ? normalizeDate(row[colLastUpd]) : "";
     if (upd && upd > lastUpdateDate) lastUpdateDate = upd;
 
     const key = forcedType; // "pc" | "dh" | "mh"
@@ -173,8 +187,8 @@ function processMua(XLSX) {
 
   const colName       = findCol(headers, "ServiceAreaName", "DesignationName", "Designation Name", "Name");
   const colType       = findCol(headers, "DesignationTypeCode", "Designation Type Code", "DesignationType", "Designation Type");
-  // Prefer description (full words like "Designated") over code ("D") for status filtering
-  const colStatus     = findCol(headers, "MUAPStatusDescription", "StatusDescription", "Status Description", "DesignationStatus", "Designation Status", "Status");
+  // Avoid "Status" alone — it matches "MUA/P Status Code" (values: D/W/P) before "MUA/P Status Description"
+  const colStatus     = findCol(headers, "MUAPStatusDescription", "StatusDescription", "DesignationStatus");
   const colImu        = findCol(headers, "IMUScore", "IMU Score", "IndexOfMedical", "IMU");
   // "FIPS Code" alone matches "State FIPS Code" (2-digit) before "Common State County FIPS Code" (5-digit)
   // Use county-specific fragments that won't match "State FIPS Code"
@@ -203,7 +217,10 @@ function processMua(XLSX) {
 
   for (const row of rows) {
     const status = String(row[colStatus] || "").trim();
-    if (!status.toLowerCase().includes("designated") || status.toLowerCase().includes("proposed")) {
+    const sl = status.toLowerCase();
+    // Accept "Designated" (description column) or "D" (status code column)
+    const isDesignated = sl === "d" || (sl.includes("designated") && !sl.includes("proposed"));
+    if (!isDesignated) {
       skipped++;
       continue;
     }
