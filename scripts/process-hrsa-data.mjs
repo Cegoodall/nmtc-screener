@@ -94,7 +94,7 @@ function processHpsaFile(XLSX, filePath, forcedType) {
   if (!rows.length) throw new Error(`HPSA ${forcedType.toUpperCase()} file appears empty`);
 
   const headers = Object.keys(rows[0]);
-  console.log(`HPSA ${forcedType.toUpperCase()} columns:`, headers.slice(0, 15).join(", "));
+  console.log(`HPSA ${forcedType.toUpperCase()} ALL columns:`, headers.join(", "));
 
   // Flexible column mapping — HRSA has changed column names across releases
   const colName      = findCol(headers, "HPSAName", "HPSA Name", "Name");
@@ -105,6 +105,15 @@ function processHpsaFile(XLSX, filePath, forcedType) {
   const colStateFips = findCol(headers, "PrimaryStateFIPSCode", "State FIPS Code", "CommonStateFIPS");
   const colCntyFips  = findCol(headers, "PrimaryCountyFIPSCode", "County FIPS Code", "CommonCountyFIPS");
   const colLastUpd   = findCol(headers, "HPSALastUpdateDate", "Last Update Date", "UpdateDate");
+
+  console.log(`HPSA ${forcedType.toUpperCase()} column map:`, { colName, colTypeCode, colScore, colStatus, colFips5, colStateFips, colCntyFips });
+
+  if (colStatus) {
+    const sampleStatuses = [...new Set(rows.slice(0, 200).map(r => String(r[colStatus] || "").trim()))].slice(0, 8);
+    console.log(`HPSA ${forcedType.toUpperCase()} sample status values:`, sampleStatuses);
+  } else {
+    console.warn(`HPSA ${forcedType.toUpperCase()}: WARNING — status column not found, all rows will be skipped`);
+  }
 
   if (!colFips5 && (!colStateFips || !colCntyFips)) {
     console.error("Available columns:", headers);
@@ -182,7 +191,15 @@ function processMua(XLSX) {
     throw new Error("Cannot find county FIPS column(s) in MUA file. See column list above.");
   }
 
-  console.log("MUA column map:", { colName, colType, colStatus, colImu, colFips5 });
+  console.log("MUA ALL columns:", headers.join(", "));
+  console.log("MUA column map:", { colName, colType, colStatus, colImu, colFips5, colStateFips, colCntyFips });
+
+  if (colStatus) {
+    const sampleStatuses = [...new Set(rows.slice(0, 200).map(r => String(r[colStatus] || "").trim()))].slice(0, 8);
+    console.log("MUA sample status values:", sampleStatuses);
+  } else {
+    console.warn("MUA: WARNING — status column not found, all rows will be skipped");
+  }
 
   const lookup = {};
   let lastUpdateDate = "";
