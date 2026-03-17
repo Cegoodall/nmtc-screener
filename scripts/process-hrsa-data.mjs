@@ -94,11 +94,12 @@ function processHpsaFile(XLSX, filePath, forcedType) {
   if (!rows.length) throw new Error(`HPSA ${forcedType.toUpperCase()} file appears empty`);
 
   const headers = Object.keys(rows[0]);
-  console.log(`HPSA ${forcedType.toUpperCase()} ALL columns:`, headers.join(", "));
+  console.log(`HPSA ${forcedType.toUpperCase()} columns (first 15):`, headers.slice(0, 15).join(", "));
 
   // Flexible column mapping — HRSA has changed column names across releases
   const colName      = findCol(headers, "HPSAName", "HPSA Name", "Name");
-  const colTypeCode  = findCol(headers, "HPSATypeCode", "HPSA Type Code", "Type Code");
+  // "Type Code" alone would match "HPSA Component Type Code" first — use specific fragments only
+  const colTypeCode  = findCol(headers, "HPSATypeCode", "HPSA Type Code");
   const colScore     = findCol(headers, "HPSAScore", "HPSA Score", "Score");
   const colStatus    = findCol(headers, "HPSAStatus", "HPSA Status", "Status");
   const colFips5     = findCol(headers, "CommonStateCountyFIPSCode", "Common State County FIPS", "FIPS Code", "CountyFIPS", "County FIPS");
@@ -175,13 +176,16 @@ function processMua(XLSX) {
   if (!rows.length) throw new Error("MUA file appears empty");
 
   const headers = Object.keys(rows[0]);
-  console.log("MUA columns:", headers.slice(0, 15).join(", "));
 
-  const colName       = findCol(headers, "DesignationName", "Designation Name", "Name");
-  const colType       = findCol(headers, "DesignationType", "Designation Type", "Type");
-  const colStatus     = findCol(headers, "DesignationStatus", "Designation Status", "Status");
+
+  const colName       = findCol(headers, "ServiceAreaName", "DesignationName", "Designation Name", "Name");
+  const colType       = findCol(headers, "DesignationTypeCode", "Designation Type Code", "DesignationType", "Designation Type");
+  // Prefer description (full words like "Designated") over code ("D") for status filtering
+  const colStatus     = findCol(headers, "MUAPStatusDescription", "StatusDescription", "Status Description", "DesignationStatus", "Designation Status", "Status");
   const colImu        = findCol(headers, "IMUScore", "IMU Score", "IndexOfMedical", "IMU");
-  const colFips5      = findCol(headers, "CommonStateCountyFIPSCode", "Common State County FIPS", "FIPS Code", "CountyFIPS");
+  // "FIPS Code" alone matches "State FIPS Code" (2-digit) before "Common State County FIPS Code" (5-digit)
+  // Use county-specific fragments that won't match "State FIPS Code"
+  const colFips5      = findCol(headers, "CommonStateCountyFIPSCode", "Common State County FIPS", "CountyFIPS", "County FIPS");
   const colStateFips  = findCol(headers, "PrimaryStateFIPSCode", "State FIPS Code", "CommonStateFIPS");
   const colCntyFips   = findCol(headers, "PrimaryCountyFIPSCode", "County FIPS Code", "CommonCountyFIPS");
   const colLastUpd    = findCol(headers, "DesignationLastUpdateDate", "Last Update Date", "UpdateDate");
@@ -191,7 +195,6 @@ function processMua(XLSX) {
     throw new Error("Cannot find county FIPS column(s) in MUA file. See column list above.");
   }
 
-  console.log("MUA ALL columns:", headers.join(", "));
   console.log("MUA column map:", { colName, colType, colStatus, colImu, colFips5, colStateFips, colCntyFips });
 
   if (colStatus) {
