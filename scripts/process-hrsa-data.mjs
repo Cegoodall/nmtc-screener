@@ -35,20 +35,37 @@ const HPSA_TMP = path.join(ROOT, "scripts", "hrsa-hpsa-raw.xlsx");
 const MUA_TMP  = path.join(ROOT, "scripts", "hrsa-mua-raw.xlsx");
 const OUT_FILE = path.join(ROOT, "public", "hrsa-shortage.json");
 
-const HPSA_URL = "https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_DL.xlsx";
-const MUA_URL  = "https://data.hrsa.gov/DataDownload/DD_Files/MUA_DET.xlsx";
+// HRSA periodically renames files; try known URLs in order
+const HPSA_URLS = [
+  "https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_DL.xlsx",
+  "https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_DH.xlsx",
+];
+const MUA_URLS = [
+  "https://data.hrsa.gov/DataDownload/DD_Files/MUA_DET.xlsx",
+  "https://data.hrsa.gov/DataDownload/DD_Files/MU_DET.xlsx",
+];
+const HPSA_URL = HPSA_URLS[0];
+const MUA_URL  = MUA_URLS[0];
 
 // ─── Download helper ──────────────────────────────────────────────────────────
 
-async function downloadFile(url, dest) {
-  console.log(`Downloading: ${url}`);
-  const res = await fetch(url, {
-    headers: { "User-Agent": "nmtc-screener-data-pipeline/1.0" },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
-  const ws = createWriteStream(dest);
-  await pipeline(res.body, ws);
-  console.log(`Saved: ${dest}`);
+async function downloadFile(urls, dest) {
+  const urlList = Array.isArray(urls) ? urls : [urls];
+  for (const url of urlList) {
+    console.log(`Downloading: ${url}`);
+    const res = await fetch(url, {
+      headers: { "User-Agent": "nmtc-screener-data-pipeline/1.0" },
+    });
+    if (!res.ok) {
+      console.warn(`  HTTP ${res.status} — trying next URL...`);
+      continue;
+    }
+    const ws = createWriteStream(dest);
+    await pipeline(res.body, ws);
+    console.log(`Saved: ${dest}`);
+    return url; // return the URL that worked
+  }
+  throw new Error(`All URLs failed for ${dest}`);
 }
 
 // ─── Column detection helper ──────────────────────────────────────────────────
@@ -263,13 +280,13 @@ function merge(hpsaResult, muaResult) {
 async function main() {
   // Download files if not already present
   if (!existsSync(HPSA_TMP)) {
-    await downloadFile(HPSA_URL, HPSA_TMP);
+    await downloadFile(HPSA_URLS, HPSA_TMP);
   } else {
     console.log("Using cached HPSA file:", HPSA_TMP);
   }
 
   if (!existsSync(MUA_TMP)) {
-    await downloadFile(MUA_URL, MUA_TMP);
+    await downloadFile(MUA_URLS, MUA_TMP);
   } else {
     console.log("Using cached MUA file:", MUA_TMP);
   }
@@ -294,8 +311,8 @@ main().catch(e => {
   console.error("\nIf the download failed, manually download the files to:");
   console.error(`  ${HPSA_TMP}`);
   console.error(`  ${MUA_TMP}`);
-  console.error("from:");
-  console.error(`  ${HPSA_URL}`);
-  console.error(`  ${MUA_URL}`);
+  console.error("from (try each URL until one works):");
+  console.error("  HPSA:", HPSA_URLS.join("\n       "));
+  console.error("  MUA: ", MUA_URLS.join("\n       "));
   process.exit(1);
 });
