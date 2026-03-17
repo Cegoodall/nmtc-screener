@@ -5,8 +5,10 @@
  * Run: node scripts/process-hrsa-data.mjs
  *
  * Sources (HRSA Bureau of Health Workforce — no usage restrictions):
- *   HPSA: https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_DL.xlsx
- *   MUA:  https://data.hrsa.gov/DataDownload/DD_Files/MUA_DET.xlsx
+ *   HPSA PC: https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_PC.xlsx
+ *   HPSA DH: https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_DH.xlsx
+ *   HPSA MH: https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_MH.xlsx
+ *   MUA:     https://data.hrsa.gov/DataDownload/DD_Files/MUA_DET.xlsx
  *
  * Data structure keyed by 5-digit county FIPS (e.g. "22071" = Orleans Parish, LA):
  *   {
@@ -24,28 +26,30 @@
  * When multiple HPSAs of the same type cover one county, the highest score wins.
  */
 
-import { createWriteStream, writeFileSync, existsSync, unlinkSync } from "fs";
+import { createWriteStream, writeFileSync, existsSync } from "fs";
 import { pipeline } from "stream/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
-const HPSA_TMP = path.join(ROOT, "scripts", "hrsa-hpsa-raw.xlsx");
-const MUA_TMP  = path.join(ROOT, "scripts", "hrsa-mua-raw.xlsx");
-const OUT_FILE = path.join(ROOT, "public", "hrsa-shortage.json");
 
-// HRSA periodically renames files; try known URLs in order
-const HPSA_URLS = [
-  "https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_DL.xlsx",
-  "https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_DH.xlsx",
+const HPSA_PC_TMP = path.join(ROOT, "scripts", "hrsa-hpsa-pc-raw.xlsx");
+const HPSA_DH_TMP = path.join(ROOT, "scripts", "hrsa-hpsa-dh-raw.xlsx");
+const HPSA_MH_TMP = path.join(ROOT, "scripts", "hrsa-hpsa-mh-raw.xlsx");
+const MUA_TMP     = path.join(ROOT, "scripts", "hrsa-mua-raw.xlsx");
+const OUT_FILE    = path.join(ROOT, "public", "hrsa-shortage.json");
+
+// HRSA periodically renames files; each entry is [dest, ...urlsToTry]
+const HPSA_SOURCES = [
+  { dest: HPSA_PC_TMP, type: "pc", urls: ["https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_PC.xlsx"] },
+  { dest: HPSA_DH_TMP, type: "dh", urls: ["https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_DH.xlsx"] },
+  { dest: HPSA_MH_TMP, type: "mh", urls: ["https://data.hrsa.gov/DataDownload/DD_Files/BCD_HPSA_FCT_DET_MH.xlsx"] },
 ];
 const MUA_URLS = [
   "https://data.hrsa.gov/DataDownload/DD_Files/MUA_DET.xlsx",
   "https://data.hrsa.gov/DataDownload/DD_Files/MU_DET.xlsx",
 ];
-const HPSA_URL = HPSA_URLS[0];
-const MUA_URL  = MUA_URLS[0];
 
 // ─── Download helper ──────────────────────────────────────────────────────────
 
@@ -63,7 +67,7 @@ async function downloadFile(urls, dest) {
     const ws = createWriteStream(dest);
     await pipeline(res.body, ws);
     console.log(`Saved: ${dest}`);
-    return url; // return the URL that worked
+    return url;
   }
   throw new Error(`All URLs failed for ${dest}`);
 }
@@ -81,15 +85,16 @@ function findCol(headers, ...fragments) {
 
 // ─── HPSA processing ──────────────────────────────────────────────────────────
 
-function processHpsa(XLSX) {
-  console.log("Parsing HPSA file...");
-  const wb = XLSX.readFile(HPSA_TMP);
+// forcedType: "pc" | "dh" | "mh" — used when the file doesn't have a type code column
+function processHpsaFile(XLSX, filePath, forcedType) {
+  console.log(`Parsing HPSA ${forcedType.toUpperCase()} file...`);
+  const wb = XLSX.readFile(filePath);
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-  if (!rows.length) throw new Error("HPSA file appears empty");
+  if (!rows.length) throw new Error(`HPSA ${forcedType.toUpperCase()} file appears empty`);
 
   const headers = Object.keys(rows[0]);
-  console.log("HPSA columns:", headers.slice(0, 15).join(", "));
+  console.log(`HPSA ${forcedType.toUpperCase()} columns:`, headers.slice(0, 15).join(", "));
 
   // Flexible column mapping — HRSA has changed column names across releases
   const colName      = findCol(headers, "HPSAName", "HPSA Name", "Name");
@@ -101,34 +106,29 @@ function processHpsa(XLSX) {
   const colCntyFips  = findCol(headers, "PrimaryCountyFIPSCode", "County FIPS Code", "CommonCountyFIPS");
   const colLastUpd   = findCol(headers, "HPSALastUpdateDate", "Last Update Date", "UpdateDate");
 
-  if (!colTypeCode) {
-    console.error("Available columns:", headers);
-    throw new Error("Cannot find HPSA Type Code column. See column list above.");
-  }
   if (!colFips5 && (!colStateFips || !colCntyFips)) {
     console.error("Available columns:", headers);
-    throw new Error("Cannot find county FIPS column(s). See column list above.");
+    throw new Error(`Cannot find county FIPS column(s) in HPSA ${forcedType.toUpperCase()} file. See column list above.`);
   }
 
-  console.log("HPSA column map:", { colName, colTypeCode, colScore, colStatus, colFips5, colStateFips, colCntyFips });
-
-  // Build lookup: fips5 → { pc, dh, mh } taking highest score per type
   const lookup = {};
   let lastUpdateDate = "";
   let skipped = 0;
 
   for (const row of rows) {
-    const typeCode = String(row[colTypeCode] || "").trim().toUpperCase();
+    // Use type from column if present, otherwise use forcedType from filename
+    const typeCode = colTypeCode
+      ? String(row[colTypeCode] || "").trim().toUpperCase()
+      : forcedType.toUpperCase();
+
     if (!["PC", "DH", "MH"].includes(typeCode)) continue;
 
     const status = String(row[colStatus] || "").trim();
-    // Only include "Designated" records — skip Proposed for Withdrawal, Not Designated, etc.
     if (!status.toLowerCase().includes("designated") || status.toLowerCase().includes("proposed")) {
       skipped++;
       continue;
     }
 
-    // Resolve 5-digit county FIPS
     let fips5 = "";
     if (colFips5) {
       fips5 = String(row[colFips5] || "").trim().replace(/\.0$/, "").padStart(5, "0");
@@ -152,7 +152,7 @@ function processHpsa(XLSX) {
     }
   }
 
-  console.log(`HPSA: processed ${Object.keys(lookup).length} counties, skipped ${skipped} non-designated rows`);
+  console.log(`HPSA ${forcedType.toUpperCase()}: processed ${Object.keys(lookup).length} counties, skipped ${skipped} non-designated rows`);
   return { lookup, lastUpdateDate };
 }
 
@@ -217,7 +217,6 @@ function processMua(XLSX) {
 
     const key = isMua ? "mua" : "mup";
     if (!lookup[fips5]) lookup[fips5] = {};
-    // Keep first designation found per type (or lowest IMU = greatest underservice)
     const existing = lookup[fips5][key];
     if (!existing || (imuScore !== null && imuScore < (existing.imu_score ?? 100))) {
       lookup[fips5][key] = { imu_score: imuScore, status: "Designated", name };
@@ -230,15 +229,25 @@ function processMua(XLSX) {
 
 // ─── Merge + output ───────────────────────────────────────────────────────────
 
-function merge(hpsaResult, muaResult) {
+function merge(hpsaResults, muaResult) {
   const out = {};
+
+  // Merge all HPSA type lookups
+  const hpsaLookup = {};
+  for (const { lookup } of hpsaResults) {
+    for (const [fips5, types] of Object.entries(lookup)) {
+      if (!hpsaLookup[fips5]) hpsaLookup[fips5] = {};
+      Object.assign(hpsaLookup[fips5], types);
+    }
+  }
+
   const allFips = new Set([
-    ...Object.keys(hpsaResult.lookup),
+    ...Object.keys(hpsaLookup),
     ...Object.keys(muaResult.lookup),
   ]);
 
   for (const fips5 of allFips) {
-    const h = hpsaResult.lookup[fips5] ?? {};
+    const h = hpsaLookup[fips5] ?? {};
     const m = muaResult.lookup[fips5] ?? {};
     out[fips5] = {
       pc:  h.pc  ?? null,
@@ -249,7 +258,6 @@ function merge(hpsaResult, muaResult) {
     };
   }
 
-  // Count active designations for meta
   let hpsaCount = 0;
   let muaCount  = 0;
   for (const v of Object.values(out)) {
@@ -257,8 +265,10 @@ function merge(hpsaResult, muaResult) {
     if (v.mua || v.mup) muaCount++;
   }
 
-  // Build vintage string from last-update dates
-  const dates = [hpsaResult.lastUpdateDate, muaResult.lastUpdateDate].filter(Boolean);
+  const dates = [
+    ...hpsaResults.map(r => r.lastUpdateDate),
+    muaResult.lastUpdateDate,
+  ].filter(Boolean);
   const vintage = dates.length
     ? `HRSA HPSA/MUA data — last record update ${dates.sort().pop()}`
     : `HRSA HPSA/MUA data — downloaded ${new Date().toISOString().slice(0, 10)}`;
@@ -268,8 +278,10 @@ function merge(hpsaResult, muaResult) {
     generated: new Date().toISOString(),
     hpsa_counties_with_designation: hpsaCount,
     mua_counties_with_designation: muaCount,
-    source_hpsa: HPSA_URL,
-    source_mua: MUA_URL,
+    source_hpsa_pc: HPSA_SOURCES[0].urls[0],
+    source_hpsa_dh: HPSA_SOURCES[1].urls[0],
+    source_hpsa_mh: HPSA_SOURCES[2].urls[0],
+    source_mua: MUA_URLS[0],
   };
 
   return out;
@@ -278,11 +290,13 @@ function merge(hpsaResult, muaResult) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  // Download files if not already present
-  if (!existsSync(HPSA_TMP)) {
-    await downloadFile(HPSA_URLS, HPSA_TMP);
-  } else {
-    console.log("Using cached HPSA file:", HPSA_TMP);
+  // Download HPSA files if not already present
+  for (const { dest, urls, type } of HPSA_SOURCES) {
+    if (!existsSync(dest)) {
+      await downloadFile(urls, dest);
+    } else {
+      console.log(`Using cached HPSA ${type.toUpperCase()} file:`, dest);
+    }
   }
 
   if (!existsSync(MUA_TMP)) {
@@ -292,9 +306,12 @@ async function main() {
   }
 
   const XLSX = await import("xlsx").then(m => m.default || m);
-  const hpsaResult = processHpsa(XLSX);
-  const muaResult  = processMua(XLSX);
-  const merged     = merge(hpsaResult, muaResult);
+
+  const hpsaResults = HPSA_SOURCES.map(({ dest, type }) =>
+    processHpsaFile(XLSX, dest, type)
+  );
+  const muaResult = processMua(XLSX);
+  const merged    = merge(hpsaResults, muaResult);
 
   writeFileSync(OUT_FILE, JSON.stringify(merged));
   const kb = Math.round(Buffer.byteLength(JSON.stringify(merged)) / 1024);
@@ -303,16 +320,15 @@ async function main() {
   console.log(`Counties with MUA/MUP:  ${merged._meta.mua_counties_with_designation}`);
   console.log(`Vintage: ${merged._meta.vintage}`);
   console.log("\nTo refresh data, delete the cached raw files and re-run:");
-  console.log(`  rm ${HPSA_TMP} ${MUA_TMP} && node scripts/process-hrsa-data.mjs`);
+  console.log(`  rm ${HPSA_PC_TMP} ${HPSA_DH_TMP} ${HPSA_MH_TMP} ${MUA_TMP} && node scripts/process-hrsa-data.mjs`);
 }
 
 main().catch(e => {
   console.error("\n✗ Error:", e.message);
   console.error("\nIf the download failed, manually download the files to:");
-  console.error(`  ${HPSA_TMP}`);
-  console.error(`  ${MUA_TMP}`);
-  console.error("from (try each URL until one works):");
-  console.error("  HPSA:", HPSA_URLS.join("\n       "));
-  console.error("  MUA: ", MUA_URLS.join("\n       "));
+  for (const { dest, urls } of HPSA_SOURCES) {
+    console.error(`  ${dest}  <-  ${urls[0]}`);
+  }
+  console.error(`  ${MUA_TMP}  <-  ${MUA_URLS[0]}`);
   process.exit(1);
 });
