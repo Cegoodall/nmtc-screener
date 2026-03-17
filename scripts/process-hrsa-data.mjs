@@ -98,8 +98,6 @@ function processHpsaFile(XLSX, filePath, forcedType) {
 
   // Flexible column mapping — HRSA has changed column names across releases
   const colName      = findCol(headers, "HPSAName", "HPSA Name", "Name");
-  // "Type Code" alone would match "HPSA Component Type Code" first — use specific fragments only
-  const colTypeCode  = findCol(headers, "HPSATypeCode", "HPSA Type Code");
   const colScore     = findCol(headers, "HPSAScore", "HPSA Score", "Score");
   const colStatus    = findCol(headers, "HPSAStatus", "HPSA Status", "Status");
   const colFips5     = findCol(headers, "CommonStateCountyFIPSCode", "Common State County FIPS", "FIPS Code", "CountyFIPS", "County FIPS");
@@ -107,7 +105,7 @@ function processHpsaFile(XLSX, filePath, forcedType) {
   const colCntyFips  = findCol(headers, "PrimaryCountyFIPSCode", "County FIPS Code", "CommonCountyFIPS");
   const colLastUpd   = findCol(headers, "HPSALastUpdateDate", "Last Update Date", "UpdateDate");
 
-  console.log(`HPSA ${forcedType.toUpperCase()} column map:`, { colName, colTypeCode, colScore, colStatus, colFips5, colStateFips, colCntyFips });
+  console.log(`HPSA ${forcedType.toUpperCase()} column map:`, { colName, colScore, colStatus, colFips5, colStateFips, colCntyFips });
 
   if (colStatus) {
     const sampleStatuses = [...new Set(rows.slice(0, 200).map(r => String(r[colStatus] || "").trim()))].slice(0, 8);
@@ -126,13 +124,8 @@ function processHpsaFile(XLSX, filePath, forcedType) {
   let skipped = 0;
 
   for (const row of rows) {
-    // Use type from column if present, otherwise use forcedType from filename
-    const typeCode = colTypeCode
-      ? String(row[colTypeCode] || "").trim().toUpperCase()
-      : forcedType.toUpperCase();
-
-    if (!["PC", "DH", "MH"].includes(typeCode)) continue;
-
+    // Each file is already type-specific; no need to filter by type code column.
+    // Use forcedType (derived from filename) as the output key.
     const status = String(row[colStatus] || "").trim();
     if (!status.toLowerCase().includes("designated") || status.toLowerCase().includes("proposed")) {
       skipped++;
@@ -154,7 +147,7 @@ function processHpsaFile(XLSX, filePath, forcedType) {
     const upd   = colLastUpd ? String(row[colLastUpd] || "").trim() : "";
     if (upd && upd > lastUpdateDate) lastUpdateDate = upd;
 
-    const key = typeCode.toLowerCase(); // "pc" | "dh" | "mh"
+    const key = forcedType; // "pc" | "dh" | "mh"
     if (!lookup[fips5]) lookup[fips5] = {};
     const existing = lookup[fips5][key];
     if (!existing || score > existing.score) {
