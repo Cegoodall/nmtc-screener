@@ -362,7 +362,6 @@ export default function NMTCScreener() {
         hubZone,
         hrsa,
         countyFips5,
-        isDemo: false,
       };
       setResults(resultData);
       logSearch({
@@ -425,7 +424,6 @@ export default function NMTCScreener() {
         hrsa,
         countyFips5,
         isManualGeoid: true,
-        isDemo: false,
       });
     } catch (e) {
       setError(e.message || "Unexpected error.");
