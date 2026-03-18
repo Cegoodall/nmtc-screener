@@ -14,7 +14,7 @@
     },
     {
       "source": "/api/hubzone-proxy",
-      "destination": "https://maps.certify.sba.gov/hubzone/map/search"
+      "destination": "https://maps.certify.sba.gov/api/hubzone"
     }
   ]
 }
