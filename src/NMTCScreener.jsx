@@ -20,31 +20,6 @@ const US_STATES = [
   "VA","WA","WV","WI","WY","DC",
 ];
 
-// Demo uses tract 22071007200 (Orleans Parish, Census Tract 72) — valid 2020 GEOID near Xavier University
-// Values sourced directly from CDFI Fund 2016-2020 ACS data
-const DEMO_RESULT = {
-  matchedAddress: "1 Drexel Drive, New Orleans, LA 70125",
-  geoid: "22071007200",
-  tractName: "Census Tract 72, Orleans Parish, Louisiana",
-  lat: 29.9639,
-  lon: -90.1092,
-  povertyRate: 29.3,
-  mfiRatio: 52.5,
-  unemploymentRate: 18.5,
-  eligible: true,
-  eligibilityBasis: "poverty_rate",
-  povertyEligible: true,
-  incomeEligible: true,
-  unemploymentEligible: true,
-  severelyDistressed: true,
-  deepDistress: true,
-  deepDistressBasis: ["unemployment_2_5x"],
-  highMigration: false,
-  isOpportunityZone: false,
-  hubZone: { designated: false, checked: true },
-  isDemo: true,
-};
-
 // ─── Tier logic ──────────────────────────────────────────────────────────────
 
 function computeTier(r) {
@@ -315,8 +290,6 @@ export default function NMTCScreener() {
     preloadHrsaData().catch(() => {});
   }, []);
 
-  const runDemo = () => { setResults(DEMO_RESULT); setError(null); };
-
   const analyze = async () => {
     if (!street.trim() || !city.trim() || !stateAbbr.trim()) return;
     setLoading(true); setError(null); setResults(null);
@@ -389,7 +362,6 @@ export default function NMTCScreener() {
         hubZone,
         hrsa,
         countyFips5,
-        isDemo: false,
       };
       setResults(resultData);
       logSearch({
@@ -452,7 +424,6 @@ export default function NMTCScreener() {
         hrsa,
         countyFips5,
         isManualGeoid: true,
-        isDemo: false,
       });
     } catch (e) {
       setError(e.message || "Unexpected error.");
@@ -481,9 +452,6 @@ export default function NMTCScreener() {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Link to="/dashboard" style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Dashboard</Link>
           <Link to="/admin" style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Admin</Link>
-          <button onClick={runDemo} style={{ fontSize: 11, fontWeight: 700, color: "#0ea5e9", background: "rgba(14,165,233,0.1)", border: "1px solid rgba(14,165,233,0.25)", borderRadius: 6, padding: "6px 14px", cursor: "pointer" }}>
-            Load Demo →
-          </button>
         </div>
       </div>
 
@@ -598,11 +566,6 @@ export default function NMTCScreener() {
 
         {r && (
           <div className="fade">
-            {r.isDemo && (
-              <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "10px 16px", marginBottom: 14, fontSize: 12, color: "#1d4ed8" }}>
-                ℹ Demo data — Census Tract 72, Orleans Parish (near Xavier University). Values sourced from CDFI Fund 2016-2020 ACS dataset.
-              </div>
-            )}
             {r.isManualGeoid && (
               <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 8, padding: "10px 16px", marginBottom: 14, fontSize: 12, color: "#166534" }}>
                 ✓ Results for manually entered GEOID <strong style={{ fontFamily: "monospace" }}>{r.geoid}</strong> — data sourced directly from CDFI Fund tract dataset. HUBZone status not checked (requires lat/lon from geocoding).
@@ -652,7 +615,7 @@ export default function NMTCScreener() {
             {r.deepDistress && <DeepDistressBanner basis={r.deepDistressBasis} highMigration={r.highMigration} />}
 
             {/* Street name mismatch warning */}
-            {!r.isDemo && !r.isManualGeoid && r.matchedAddress && (() => {
+            {!r.isManualGeoid && r.matchedAddress && (() => {
               const inputStreet = street.trim().toLowerCase().replace(/[^a-z0-9 ]/g, "");
               const matched = r.matchedAddress.toLowerCase().replace(/[^a-z0-9 ]/g, "");
               // Extract first word of street number + next word as a rough check
@@ -795,9 +758,6 @@ export default function NMTCScreener() {
             <div style={{ fontSize: 13, color: "#94a3b8", maxWidth: 520, margin: "0 auto", lineHeight: 1.6 }}>
               Geocodes via Census Bureau · Looks up CDFI Fund tract data · Tests all LIC criteria · Flags Severe and Deep Distress · Checks OZ and HUBZone status
             </div>
-            <button onClick={runDemo} style={{ marginTop: 20, fontSize: 12, fontWeight: 700, color: "#2d7dd2", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, padding: "8px 16px", cursor: "pointer" }}>
-              Preview with demo data →
-            </button>
           </div>
         )}
       </div>
