@@ -313,12 +313,7 @@ export default function NMTCScreener() {
 
       // Step 4 — HUBZone
       setLoadStep("Checking HUBZone designation via SBA...");
-      let hubZone = { designated: false, checked: false };
-      try {
-        hubZone = await checkHubZone(geo.lat, geo.lon);
-      } catch {
-        hubZone = { designated: false, checked: false, error: true };
-      }
+      const hubZone = await checkHubZone(geo.lat, geo.lon);
 
       // Step 5a — HRSA shortage area lookup (county-level, from bundled data)
       const countyFips5 = geo.stateCode && geo.countyCode
@@ -717,7 +712,7 @@ export default function NMTCScreener() {
                 icon="⬡"
                 color="#0891b2"
                 description={
-                  r.hubZone?.error
+                  r.hubZone?.unavailable
                     ? "SBA API unavailable — verify manually at certify.sba.gov"
                     : r.hubZone?.designated
                       ? "SBA-designated HUBZone. Supplemental severe distress indicator."

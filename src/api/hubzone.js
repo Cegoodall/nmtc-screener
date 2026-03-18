@@ -1,28 +1,59 @@
 /**
  * SBA HUBZone lookup
- * Endpoint: https://maps.certify.sba.gov/hubzone/map/search?latlng=LAT,LNG
+ * Endpoint: https://maps.certify.sba.gov/api/hubzone?lat=LAT&lng=LNG
  * Proxied via /api/hubzone-proxy (vite.config.js + vercel.json).
  *
- * The response is JavaScript (not JSON) with data embedded in a JSON.parse('...') call.
- * We extract the JSON string and parse it. The `hubzone` array is non-empty if designated.
+ * Returns JSON. The `hubzone` array is non-empty if the location is designated.
+ * Retries up to 3 times with a 1-second delay and a 10-second per-request timeout.
  */
+
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1000;
+const TIMEOUT_MS = 10_000;
+
+async function fetchWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function checkHubZone(lat, lon) {
   if (lat == null || lon == null) return { designated: false, checked: false };
 
-  const res = await fetch(`/api/hubzone-proxy?latlng=${lat},${lon}`);
-  if (!res.ok) throw new Error(`SBA HUBZone API returned HTTP ${res.status}`);
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetchWithTimeout(
+        `/api/hubzone-proxy?lat=${lat}&lng=${lon}`,
+        TIMEOUT_MS,
+      );
+      if (!res.ok) throw new Error(`SBA HUBZone API returned HTTP ${res.status}`);
 
-  const text = await res.text();
+      const data = await res.json();
 
-  // Extract JSON from: JSON.parse('{ ... }')
-  const match = text.match(/JSON\.parse\('(.+?)'\);/s);
-  if (!match) throw new Error("Unexpected SBA HUBZone response format");
+      // Support both `{ hubzone: [...] }` and `{ designated: bool }` shapes
+      let designated;
+      if (typeof data?.designated === "boolean") {
+        designated = data.designated;
+      } else {
+        designated = Array.isArray(data?.hubzone) && data.hubzone.length > 0;
+      }
 
-  // The JSON string uses escaped single quotes inside — unescape and parse
-  const jsonStr = match[1].replace(/\\'/g, "'");
-  const data = JSON.parse(jsonStr);
+      return { designated, checked: true };
+    } catch (err) {
+      lastError = err;
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise(res => setTimeout(res, RETRY_DELAY_MS));
+      }
+    }
+  }
 
-  const designated = Array.isArray(data?.hubzone) && data.hubzone.length > 0;
-
-  return { designated, checked: true };
+  // All attempts exhausted — return unavailable rather than throwing so
+  // callers can display a clean "Unavailable" state without crashing the batch.
+  console.warn("HUBZone check failed after", MAX_ATTEMPTS, "attempts:", lastError?.message);
+  return { designated: false, checked: false, unavailable: true };
 }

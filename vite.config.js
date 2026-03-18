@@ -31,12 +31,10 @@ export default defineConfig({
       '/api/hubzone-proxy': {
         target: 'https://maps.certify.sba.gov',
         changeOrigin: true,
-        rewrite: path => path.replace(/^\/api\/hubzone-proxy/, '/hubzone/map/search'),
+        rewrite: path => path.replace(/^\/api\/hubzone-proxy/, '/api/hubzone'),
         secure: true,
         headers: {
-          'Referer': 'https://maps.certify.sba.gov/hubzone/map',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Accept': 'application/json, text/javascript, */*; q=0.01',
+          'Accept': 'application/json',
         },
       },
     },

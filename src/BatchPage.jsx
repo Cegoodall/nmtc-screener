@@ -80,13 +80,8 @@ async function analyzeAddress(street, city, state) {
   const oz = isOpportunityZone(geo.geoid);
 
   // HUBZone
-  let hubZone = { designated: false, checked: false };
-  try {
-    hubZone = await checkHubZone(geo.lat, geo.lon);
-  } catch {
-    hubZone = { designated: false, checked: false, error: true };
-    notes.push("HUBZone check failed");
-  }
+  const hubZone = await checkHubZone(geo.lat, geo.lon);
+  if (hubZone.unavailable) notes.push("HUBZone status unavailable");
 
   // HRSA
   const hrsa = (geo.stateCode && geo.countyCode)
@@ -174,7 +169,7 @@ function buildRow(addressInput, result, error) {
     "Severely Distressed": yesNo(severelyDistressed),
     "Deep Distress":       yesNo(deepDistress),
     "Opportunity Zone":    yesNo(oz),
-    "HUBZone":             hubZone.error ? "Check failed" : yesNo(hubZone.designated),
+    "HUBZone":             hubZone.unavailable ? "Unavailable" : yesNo(hubZone.designated),
     "Primary Care HPSA":   hrsa?.pc    ? `Score ${hrsa.pc.score}`  : "No",
     "Dental HPSA":         hrsa?.dh    ? `Score ${hrsa.dh.score}`  : "No",
     "Mental Health HPSA":  hrsa?.mh    ? `Score ${hrsa.mh.score}`  : "No",
