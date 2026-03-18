@@ -450,8 +450,9 @@ export default function NMTCScreener() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <Link to="/batch"     style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Batch</Link>
           <Link to="/dashboard" style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Dashboard</Link>
-          <Link to="/admin" style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Admin</Link>
+          <Link to="/admin"     style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Admin</Link>
         </div>
       </div>
 
